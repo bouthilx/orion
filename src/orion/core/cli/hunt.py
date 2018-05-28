@@ -24,7 +24,7 @@ def add_subparser(parser):
     """Add the subparser that needs to be used for this command"""
     hunt_parser = parser.add_parser('hunt', help='hunt help')
 
-    orion_group = cli.get_basic_args_group(hunt_parser)
+    orion_group = cli.get_basic_args_group(hunt_parser, add_branching=True)
 
     orion_group.add_argument(
         '--max-trials', type=int, metavar='#',

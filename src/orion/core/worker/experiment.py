@@ -14,9 +14,12 @@ import datetime
 import getpass
 import logging
 import random
+import sys
 
 from orion.core.evc.adapters import Adapter, BaseAdapter
 from orion.core.io.database import Database, ReadOnlyDB
+from orion.core.io.experiment_branch_builder import ExperimentBranchBuilder
+from orion.core.io.interactive_commands.branching_prompt import BranchingPrompt
 from orion.core.io.space_builder import SpaceBuilder
 from orion.core.utils.format_trials import trial_to_tuple
 from orion.core.worker.primary_algo import PrimaryAlgo
@@ -88,7 +91,7 @@ class Experiment(object):
     __slots__ = ('name', 'refers', 'metadata', 'pool_size', 'max_trials',
                  'status', 'algorithms', '_db', '_init_done', '_id', '_node', '_last_fetched')
     # 'status' should not be in config
-    non_forking_attrs = ('status', 'pool_size', 'max_trials')
+    non_branching_attrs = ('status', 'pool_size', 'max_trials')
 
     def __init__(self, name):
         """Initialize an Experiment object with primary key (:attr:`name`, :attr:`user`).
@@ -112,7 +115,7 @@ class Experiment(object):
         self._id = None
         self.name = name
         self._node = None
-        self.refers = dict()
+        self.refers = {}
         user = getpass.getuser()
         stamp = datetime.datetime.utcnow()
         self.metadata = {'user': user, 'datetime': stamp}
@@ -129,7 +132,7 @@ class Experiment(object):
             if len(config) > 1:
                 log.warning("Many (%s) experiments for (%s, %s) are available but "
                             "only the most recent one can be accessed. "
-                            "Experiment forks will be supported soon.", len(config), name, user)
+                            "Experiment branches will be supported soon.", len(config), name, user)
             config = sorted(config, key=lambda x: x['metadata']['datetime'],
                             reverse=True)[0]
             for attrname in self.__slots__:
@@ -359,7 +362,7 @@ class Experiment(object):
     def configure(self, config):
         """Set `Experiment` by overwriting current attributes.
 
-        If `Experiment` was already set and an overwrite is needed, a *fork*
+        If `Experiment` was already set and an overwrite is needed, a *branch*
         is advised with a different :attr:`name` for this particular configuration.
 
         .. note::
@@ -391,10 +394,10 @@ class Experiment(object):
                 raise ValueError("Configuration given is inconsistent with this Experiment.")
             is_new = True
         else:
-            # Fork if it is needed
+            # Branch if it is needed
             is_new = self._is_different_from(experiment.configuration)
             if is_new:
-                experiment._fork_config(config)
+                experiment._branch_config(self.configuration, config)
 
         final_config = experiment.configuration
         self._instantiate_config(final_config)
@@ -529,14 +532,36 @@ class Experiment(object):
         if self.refers and not isinstance(self.refers.get('adapter'), BaseAdapter):
             self.refers['adapter'] = Adapter.build(self.refers['adapter'])
 
-    def _fork_config(self, config):
-        """Ask for a different identifier for this experiment.
-
-        Set :attr:`node` key to previous experiment's name, the one that we forked from.
+    def _branch_config(self, original_config, config):
+        """Ask for a different identifier for this experiment. Set :attr:`refers`
+        key to previous experiment's name, the one that we branched from.
 
         :param config: Conflicting configuration that will change based on prompt.
         """
-        raise NotImplementedError()
+        self._ensure_branching_unique_name(config)
+        experiment_brancher = ExperimentBranchBuilder(original_config, config)
+
+        if not experiment_brancher.is_solved:
+            branching_prompt = BranchingPrompt(experiment_brancher)
+            branching_prompt.cmdloop()
+
+            if branching_prompt.abort:
+                sys.exit()
+
+        adapter = experiment_brancher.create_adapters()
+        self._instantiate_config(config)
+        self.refers['adapter'] = adapter
+        self.refers['parent_id'] = self._id
+
+    def _ensure_branching_unique_name(self, config):
+        branching_name = config.get('branch')
+
+        if branching_name is not None:
+            query = dict(name=branching_name)
+
+            named_experiments = self._db.count('experiments', query)
+            if named_experiments > 0:
+                raise ValueError('Branching name already in use.')
 
     def _is_different_from(self, config):
         """Return True, if current `Experiment`'s configuration as described by
@@ -544,7 +569,7 @@ class Experiment(object):
         """
         is_diff = False
         for section, value in config.items():
-            if section in self.non_forking_attrs or \
+            if section in self.non_branching_attrs or \
                     section not in self.__slots__ or \
                     section.startswith('_'):
                 continue
