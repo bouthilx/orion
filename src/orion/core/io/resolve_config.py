@@ -35,6 +35,8 @@ import getpass
 import logging
 import os
 import socket
+import git
+import hashlib
 
 from numpy import inf as infinity
 import yaml
@@ -231,9 +233,26 @@ def merge_configs(*configs):
     return merged_config
 
 
+def fetch_user_repo(user_script):
+    """Fetch the GIT repo and its root path given user's script."""
+    dir_path = os.path.dirname(os.path.abspath(user_script))
+    git_repo = git.Repo(dir_path, search_parent_directories=True)
+    git_root = git_repo.git.rev_parse("--show-toplevel")
+    return git_repo, git_root
+
+
 def infer_versioning_metadata(existing_metadata):
     """Infer information about user's script versioning if available."""
+    git_repo, git_root = fetch_user_repo(existing_metadata['user_script'])
+    existing_metadata['is_dirty'] = git_repo.is_dirty()
+    existing_metadata['HEAD_sha'] = git_repo.head.object.hexsha
+    existing_metadata['active_branch'] = git_repo.active_branch.name
+    # The 'diff' of the current version from the latest commit
+    diff = git_repo.git.diff(git_repo.head.commit.tree)
+    diff_sha = hashlib.sha256(diff).hexdigest()
+    existing_metadata['diff_sha'] = diff_sha
     # VCS system
     # User repo's version
     # User repo's HEAD commit hash
     return existing_metadata
+
