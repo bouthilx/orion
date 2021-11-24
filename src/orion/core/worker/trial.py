@@ -186,7 +186,7 @@ class Trial:
         "end_time",
         "_results",
         "_params",
-        "parents",
+        "parent",
         "id_override",
     )
     allowed_stati = (
@@ -201,7 +201,7 @@ class Trial:
     def __init__(self, **kwargs):
         """See attributes of `Trial` for meaning and possible arguments for `kwargs`."""
         for attrname in self.__slots__:
-            if attrname in ("_results", "_params", "parents"):
+            if attrname in ("_results", "_params"):
                 setattr(self, attrname, list())
             else:
                 setattr(self, attrname, None)
@@ -258,7 +258,7 @@ class Trial:
         if params:
             raise ValueError(f"Some parameters are not part of base trial: {params}")
 
-        return Trial(status=status, params=config_params)
+        return Trial(status=status, params=config_params, parent=self.id)
 
     def to_dict(self):
         """Needed to be able to convert `Trial` to `dict` form."""
@@ -312,7 +312,11 @@ class Trial:
         self._results = results
 
     def get_working_dir(
-        self, ignore_fidelity=False, ignore_experiment=False, ignore_lie=False
+        self,
+        ignore_fidelity=False,
+        ignore_experiment=False,
+        ignore_lie=False,
+        ignore_parent=False,
     ):
         if not self.exp_working_dir:
             raise RuntimeError(
@@ -323,6 +327,7 @@ class Trial:
             ignore_fidelity=ignore_fidelity,
             ignore_experiment=ignore_experiment,
             ignore_lie=ignore_lie,
+            ignore_parent=ignore_parent,
         )
         return os.path.join(self.exp_working_dir, trial_hash)
 
@@ -418,7 +423,9 @@ class Trial:
 
         .. note:: The params contributing to the hash do not include the fidelity.
         """
-        return self.compute_trial_hash(self, ignore_fidelity=True, ignore_lie=True)
+        return self.compute_trial_hash(
+            self, ignore_fidelity=True, ignore_lie=True, ignore_parent=True
+        )
 
     def __hash__(self):
         """Return the hashname for this trial"""
@@ -433,29 +440,6 @@ class Trial:
                 "have not been set."
             )
         return self.format_values(self._params, sep="-").replace("/", ".")
-
-    def _fetch_results(self, type, results):
-        """Fetch results for the given type"""
-        return [result for result in results if result.type == type]
-
-    def _fetch_one_result_of_type(self, result_type, results=None):
-        if results is None:
-            results = self.results
-
-        value = self._fetch_results(result_type, results)
-
-        if not value:
-            return None
-
-        if len(value) > 1:
-            log.warning("Found multiple results of '%s' type:\n%s", result_type, value)
-            log.warning(
-                "Multi-objective optimization is not currently supported.\n"
-                "Optimizing according to the first one only: %s",
-                value[0],
-            )
-
-        return value[0]
 
     def _repr_values(self, values, sep=","):
         """Represent with a string the given values."""
@@ -481,7 +465,11 @@ class Trial:
 
     @staticmethod
     def compute_trial_hash(
-        trial, ignore_fidelity=False, ignore_experiment=False, ignore_lie=False
+        trial,
+        ignore_fidelity=False,
+        ignore_experiment=False,
+        ignore_lie=False,
+        ignore_parent=False,
     ):
         """Generate a unique param md5sum hash for a given `Trial`"""
         if not trial._params and not trial.experiment:
@@ -500,9 +488,38 @@ class Trial:
         if not ignore_lie and trial.lie:
             lie_repr = Trial.format_values([trial.lie])
 
+        # TODO: When implementing TrialClient, we should compute the hash of the parent
+        #       based on the same ignore_ attributes. For now we use the full id of the parent.
+        parent_repr = ""
+        if not ignore_parent and trial.parent is not None:
+            parent_repr = str(trial.parent)
+
         return hashlib.md5(
-            (params + experiment_repr + lie_repr).encode("utf-8")
+            (params + experiment_repr + lie_repr + parent_repr).encode("utf-8")
         ).hexdigest()
+
+    def _fetch_results(self, type, results):
+        """Fetch results for the given type"""
+        return [result for result in results if result.type == type]
+
+    def _fetch_one_result_of_type(self, result_type, results=None):
+        if results is None:
+            results = self.results
+
+        value = self._fetch_results(result_type, results)
+
+        if not value:
+            return None
+
+        if len(value) > 1:
+            log.warning("Found multiple results of '%s' type:\n%s", result_type, value)
+            log.warning(
+                "Multi-objective optimization is not currently supported.\n"
+                "Optimizing according to the first one only: %s",
+                value[0],
+            )
+
+        return value[0]
 
 
 class TrialCM:

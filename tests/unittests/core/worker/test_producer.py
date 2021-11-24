@@ -232,9 +232,7 @@ def test_lies_generation(producer, storage, random_dt):
         trials_non_completed[i].status = "completed"
         trials_non_completed[i].end_time = random_dt
         trials_non_completed[i].results.append(producer.strategy._lie)
-        trials_non_completed[i].parents = set([trial.id for trial in trials_completed])
         lies_dict = lies[i].to_dict()
-        lies_dict["parents"] = set(lies_dict["parents"])
         assert lies_dict == trials_non_completed[i].to_dict()
 
 
@@ -269,8 +267,6 @@ def test_register_lies(producer, storage, random_dt):
         trials_non_completed[i].status = "completed"
         trials_non_completed[i].end_time = random_dt
         trials_non_completed[i].results.append(producer.strategy._lie)
-        trials_non_completed[i].parents = set([trial.id for trial in trials_completed])
-        lying_trials[i]["parents"] = set(lying_trials[i]["parents"])
         assert lying_trials[i] == trials_non_completed[i].to_dict()
 
 

@@ -11,7 +11,6 @@ import logging
 
 from orion.core.io.database import DuplicateKeyError
 from orion.core.worker.trial import Trial
-from orion.core.worker.trials_history import TrialsHistory
 
 log = logging.getLogger(__name__)
 
@@ -42,11 +41,7 @@ class Producer(object):
         self.algorithm = experiment.algorithms
         self.strategy = experiment.producer["strategy"]
         self.naive_algorithm = None
-        # TODO: Move trials_history into BaseAlgorithm during the refactoring of Algorithm with
-        #       Strategist and Scheduler.
-        self.trials_history = TrialsHistory()
         self.params_hashes = set()
-        self.naive_trials_history = None
         self.num_trials = 0
         self.num_broken = 0
 
@@ -102,7 +97,6 @@ class Producer(object):
         # when the trial history will be held by that algo we can move that logic out of the DB
         try:
             self._prevalidate_trial(new_trial)
-            new_trial.parents = self.naive_trials_history.children
             log.debug("#### Register new trial to database: %s", new_trial)
             self.experiment.register_trial(new_trial)
             self._update_params_hashes([new_trial])
@@ -124,7 +118,9 @@ class Producer(object):
         """Register locally all param hashes of trials"""
         for trial in trials:
             self.params_hashes.add(
-                Trial.compute_trial_hash(trial, ignore_experiment=True, ignore_lie=True)
+                Trial.compute_trial_hash(
+                    trial, ignore_experiment=True, ignore_lie=True, ignore_parent=True
+                )
             )
 
     def update(self):
@@ -148,7 +144,6 @@ class Producer(object):
 
         new_completed_trials = []
         for trial in completed_trials:
-            # if trial not in self.trials_history:
             if not self.algorithm.has_observed(trial):
                 new_completed_trials.append(trial)
 
@@ -156,7 +151,6 @@ class Producer(object):
 
         if new_completed_trials:
             log.debug("### Observe them.")
-            self.trials_history.update(new_completed_trials)
             self.algorithm.observe(new_completed_trials)
             self.strategy.observe(new_completed_trials)
             self._update_params_hashes(new_completed_trials)
@@ -178,7 +172,6 @@ class Producer(object):
                 lying_trial.results.append(lying_result)
                 lying_trials.append(lying_trial)
                 log.debug("### Register lie to database: %s", lying_trial)
-                lying_trial.parents = self.trials_history.children
                 try:
                     self.experiment.register_lie(lying_trial)
                 except DuplicateKeyError:
@@ -191,12 +184,10 @@ class Producer(object):
     def _update_naive_algorithm(self, incomplete_trials):
         """Pull all non completed trials to update naive model."""
         self.naive_algorithm = copy.deepcopy(self.algorithm)
-        self.naive_trials_history = copy.deepcopy(self.trials_history)
         log.debug("### Create fake trials to observe:")
         lying_trials = self._produce_lies(incomplete_trials)
         log.debug("### %s", lying_trials)
         if lying_trials:
             log.debug("### Observe them.")
-            self.naive_trials_history.update(lying_trials)
             self.naive_algorithm.observe(lying_trials)
             self._update_params_hashes(lying_trials)
