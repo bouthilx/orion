@@ -17,6 +17,7 @@ and the child experiment.
 
 """
 
+import inspect
 import logging
 
 import orion.core
@@ -99,12 +100,15 @@ class ExperimentBranchBuilder:
             # TODO: Meh, ugly
             conflict = self.conflicts.conflicts[ith_conflict]
 
+            arguments = conflict.get_marked_arguments(
+                self.conflicts, **self.branching_arguments
+            )
+
+            if "storage" in inspect.signature(conflict.try_resolve).parameters:
+                arguments["storage"] = self.storage
+
             resolution = self.conflicts.try_resolve(
-                conflict,
-                silence_errors=silence_errors,
-                **conflict.get_marked_arguments(
-                    self.conflicts, **self.branching_arguments
-                )
+                conflict, silence_errors=silence_errors, **arguments
             )
 
             if resolution and (self.manual_resolution and not resolution.is_marked):
