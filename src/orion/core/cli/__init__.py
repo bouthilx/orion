@@ -14,16 +14,21 @@ from orion.core.utils import module_import
 log = logging.getLogger(__name__)
 
 
+@profile
 def load_modules_parser(orion_parser):
     """Search through the `cli` folder for any module containing a `get_parser` function"""
     modules = module_import.load_modules_in_path(
-        "orion.core.cli", lambda m: hasattr(m, "add_subparser")
+        "orion.core.cli",
+        lambda m: hasattr(m, "add_subparser"),
+        exceptions=("__init__",),
     )
+
     for module in modules:
         get_parser = getattr(module, "add_subparser")
         get_parser(orion_parser.get_subparsers())
 
 
+@profile
 def main(argv=None):
     """Entry point for `orion.core` functionality."""
     # Fetch experiment name, user's script path and command line arguments

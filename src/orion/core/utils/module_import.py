@@ -5,12 +5,14 @@ Utility functions for importing modules
 Conversion functions between various data types used in framework's ecosystem.
 
 """
+
 from __future__ import annotations
 
 import os
 
 
-def load_modules_in_path(path, filter_function=None):
+@profile
+def load_modules_in_path(path, filter_function=None, exceptions=tuple()):
     """
     Load all modules inside `path` and return a list of those
     fitting the filter function.
@@ -24,6 +26,7 @@ def load_modules_in_path(path, filter_function=None):
             filter(lambda f2: f2.endswith("py"), os.listdir(file_path)),
         )
     )
+    files = list(set(files) - set(exceptions))
 
     modules = map(lambda f: __import__(path + "." + f, fromlist=[""]), files)
 
